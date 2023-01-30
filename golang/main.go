@@ -1,115 +1,125 @@
 package main
 
 import (
-	"sheetServerApi/global"
-	model "sheetServerApi/internal/model/db"
-	"sheetServerApi/internal/routers"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-	"log"
-	"net/http"
-	"time"
+	"ark-online-excel/dao"
+	"ark-online-excel/logger"
+	//"context"
+	"fmt"
+	"go.uber.org/zap"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+
+	_ "ark-online-excel/routers"
+	_ "ark-online-excel/service/ws"
+
+	beegoContext "github.com/astaxie/beego/context"
+	"github.com/astaxie/beego"
+	"github.com/astaxie/beego/plugins/cors"
+	//"ark-online-excel/utils"
 )
 
-type Setting struct {
-	vp *viper.Viper
+
+func signalsWait() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
+
+	for {
+		s := <-ch
+		switch s {
+		case syscall.SIGQUIT:
+			logger.ZapLogger.Info("用户发送QUIT字符(Ctrl+/)触发")
+			return
+		case syscall.SIGTERM:
+			logger.ZapLogger.Info("结束程序(可以被捕获、阻塞或忽略)")
+			return
+		case syscall.SIGINT:
+			logger.ZapLogger.Info("用户发送INTR字符(Ctrl+C)触发")
+			return
+		case syscall.SIGHUP:
+			logger.ZapLogger.Info("终端控制进程结束(终端连接断开)")
+			return
+		default:
+			logger.ZapLogger.Info("其他原因结束程序")
+			return
+		}
+	}
 }
 
-//	init初始化函数
-func init() {
-	// 注入全局系统配置文件
-	if err := setupSetting();err!=nil {
-		log.Fatal(err)
+type ExceptionRet struct {
+	Code   int         `json:"code"`
+	Status bool        `json:"status"`
+	Err    string      `json:"error"`
+	Data   interface{} `json:"data"`
+}
+
+var Exception = ExceptionRet{
+	Code:   500,
+	Status: false,
+	Err:    "panic",
+}
+
+func RecoverPanic(ctx *beegoContext.Context) {
+	if err := recover(); err != nil {
+		if err == beego.ErrAbort {
+			return
+		}
+		if !beego.BConfig.RecoverPanic {
+			panic(err)
+		}
+		var stack string
+		logger.ZapLogger.Error(fmt.Sprintf("the request url is %s", ctx.Input.URL()))
+		logger.ZapLogger.Error("Handler crashed with error", zap.Any("err", err))
+		for i := 1; ; i++ {
+			_, file, line, ok := runtime.Caller(i)
+			if !ok {
+				break
+			}
+			stack = stack + fmt.Sprintln(fmt.Sprintf("%s:%d", file, line))
+
+		}
+		logger.ZapLogger.Error("panic stack", zap.Any("stack", stack))
+		_ = ctx.Output.JSON(Exception, false, false)
+	}
+}
+
+func main(){
+
+	RunMode := os.Getenv("RunMode")
+	if RunMode == "" {
+		RunMode = beego.AppConfig.String("RunMode")
+	}
+
+	beego.BConfig.RunMode = RunMode
+	beego.BConfig.RecoverFunc = RecoverPanic
+	//utils.TeamAddr = beego.AppConfig.String("TeamAddr")
+	logger.ZapLogger.Info(fmt.Sprintf("运行环境=%s", RunMode))
+
+
+	if err := dao.MysqlInit(); err != nil {
+		beego.Info("init dao.error", zap.Error(err))
 		return
 	}
-	// 注入数据库连接池
-	if err := setupDBEngine();err!=nil {
-		log.Fatal(err)
-		return
-	}
-	logrus.Info("init success...")
-}
+
+	// 跨域
+	beego.InsertFilter("*", beego.BeforeRouter, cors.Allow(&cors.Options{
+		AllowAllOrigins:  true,
+		AllowCredentials: true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+	}))
+
+	// start
+	//rootCtx, _ := context.WithCancel(context.Background())
 
 
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				logger.ZapLogger.Error("rabbitmq goroutine err", zap.Any("panic", err))
+			}
+		}()
+	}()
 
-// 主函数
-func main() {
-	// 设置运行模式(release or debug ?)
-	gin.SetMode(global.ServerSetting.RunMode)
-	// 打印日志
-	log.SetFlags(log.Lshortfile | log.LstdFlags)
-	// 挂载路由
-	router := routers.NewRouter()
-	s := &http.Server{
-		Addr: ":"+global.ServerSetting.HttpPort,
-		Handler: router,
-		ReadTimeout: global.ServerSetting.ReadTimeout,
-		WriteTimeout: global.ServerSetting.WriteTimeout,
-		MaxHeaderBytes: 1 << 20,
-	}
-	log.Println("listen in " + global.ServerSetting.HttpPort)
-	s.ListenAndServe()
-
-}
-
-
-
-
-//初始化全局服务器配置文件
-func setupSetting() error {
-	setting,err := NewSettings()
-	if err != nil {
-		return err
-	}
-	if err := setting.ReadSection("Server",&global.ServerSetting);err!=nil {
-		return err
-	}
-	if err := setting.ReadSection("App",&global.AppSetting);err!=nil {
-		return err
-	}
-	if err := setting.ReadSection("DatabaseOrm",&global.DatabaseOrmSetting);err!=nil {
-		return err
-	}
-	if err := setting.ReadSection("DatabaseSqlx",&global.DatabaseSqlxSetting);err!=nil {
-		return err
-	}
-	global.ServerSetting.ReadTimeout *= time.Second
-	global.ServerSetting.WriteTimeout *= time.Second
-	return nil
-}
-
-//初始化全局数据库连接池
-func setupDBEngine() error {
-	var err error
-	global.DBOrmEngine,err =  model.NewDBOrmEngine(global.DatabaseOrmSetting)
-	if err!=nil {
-		return err
-	}
-	global.DBSqlxEngine,err = model.NewDBSqlxEngine(global.DatabaseSqlxSetting)
-	if err!=nil {
-		return err
-	}
-	return nil
-}
-
-// 读取配置文件
-func NewSettings() (*Setting,error) {
-	vp := viper.New()
-	vp.SetConfigName("config")
-	// 载入全局配置文件
-	vp.AddConfigPath("/Users/mac/go/src/sheetServerApi/configs")
-	//vp.AddConfigPath(constants.Release_config_dir)
-	vp.SetConfigType("yaml")
-	if err := vp.ReadInConfig();err!=nil {
-		return nil ,err
-	}
-	return &Setting{vp},nil
-}
-
-func (s *Setting) ReadSection(k string,v interface{}) error {
-	if err := s.vp.UnmarshalKey(k,v);err!=nil {
-		return err
-	}
-	return nil
+	beego.Run()
 }

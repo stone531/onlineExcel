@@ -1,14 +1,17 @@
 package global
 
-import "sheetServerApi/pkg/setting"
+import (
+	"github.com/astaxie/beego"
+)
 
 /**
  全局配置文件
  */
 
-var (
-	ServerSetting *setting.ServerSettings //服务配置
-	AppSetting *setting.AppSettings // 应用配置
-	DatabaseOrmSetting *setting.DatabaseOrmSetting // gorm数据源配置
-	DatabaseSqlxSetting *setting.DatabaseSqlxSetting // sqlx数据源配置
-)
+func GetBaseFilePath() string {
+	return beego.AppConfig.String("ExcelFileDir")
+}
+
+func GetFileUrl() string {
+	return beego.AppConfig.String("ReleaseUrl")
+}
