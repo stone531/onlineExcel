@@ -2,6 +2,7 @@ package ws
 
 import (
 	"ark-online-excel/logger"
+	"fmt"
 	"go.uber.org/zap"
 	"sync"
 )
@@ -44,4 +45,17 @@ func DelMap(fileName string) {
 	mu.Lock()
 	delete(file2ShareObj,fileName)
 	mu.Unlock()
+}
+
+func ClearUnUsingShareRoom() {
+	if len(file2ShareObj) == 0{
+		return
+	}
+
+	for fileName,roomObj := range file2ShareObj {
+		if !roomObj.runFlag {
+			fmt.Println("ClearUnUsingShareRoom file_id:",fileName)
+			DelMap(fileName)
+		}
+	}
 }

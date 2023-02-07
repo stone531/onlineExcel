@@ -2,17 +2,17 @@ package excel
 
 import (
 	"ark-online-excel/common"
-	"ark-online-excel/dto/response"
-	"encoding/json"
-	"log"
-
 	"ark-online-excel/dao"
+	"ark-online-excel/dto"
 	"ark-online-excel/dto/request"
+	"ark-online-excel/dto/response"
 	"ark-online-excel/global"
-	//"ark-online-excel/middlewares_bk/constants"
+	"ark-online-excel/logger"
 	"ark-online-excel/models"
-	//model "ark-online-excel/models/db"
 	"ark-online-excel/utils"
+	"encoding/json"
+	"fmt"
+	"go.uber.org/zap"
 )
 
 /**
@@ -24,81 +24,89 @@ import (
 
 // 最新文件的生成
 var sheetname = "Sheet1"
-// sqlx连接器
-//var opsqlx model.OpSqlxExcelMetaDao
-// gorm连接器
-//var opgorm model.OpGormExcelMetaDao
+
 
 // 生成文件的主逻辑
-func GenerateSheetFile(req *request.MateData) (string, error) {
+func GenerateSheetFile(req *request.CreateMateData) (*response.CreateMateData, error) {
+
+	serverTestFile(req.Name, req.Author)
+
+	fileId := common.GetNewDocId()
+	mateData := &models.ExcelMeta {
+		Author:		req.Author,
+		FileId:     fileId,
+		FileName:	req.Name,
+
+		Cell:     common.InitExcelCellData,
+		Data:     common.InitExcelData,
+		RowData:  common.InitExcelRowData,
+		Modifier: req.Author,
+	}
+
+	//写入数据如果慢，需要goroutine
+	_,err := dao.AddOnlineExcelFileData(mateData)
+	if err != nil {
+		logger.ZapLogger.Error("创建文件失败 err:", zap.Error(err))
+		return &response.CreateMateData{},err
+	}
+
+	res := &response.CreateMateData{
+		FileId:fileId,
+	}
+
+	return res ,nil
+}
+
+func serverTestFile(name, author string) error {
 	/**
 	创建文件
-	 */
-	f,err := utils.Init_file(sheetname)
+	*/
+	fileHandle,err := utils.Init_file(sheetname)
 	if err != nil {
-		log.Fatal(err)
-		return "error",err
+		logger.ZapLogger.Error("serverTestFile err:", zap.Error(err))
+		return err
 	}
 
 	/**
 	设置行列宽度
 	*/
-	if err := SetColsAndRowslength(f,req.Cell,sheetname);err!=nil{
-		log.Fatal(err)
-		return "error",err
+	var cellData dto.SheetCells
+	json.Unmarshal([]byte(common.InitExcelCellData),&cellData)
+	fmt.Println("GenerateSheetFile cell:%s",cellData)
+	if err := SetColsAndRowslength(fileHandle,cellData,sheetname);err!=nil{
+		logger.ZapLogger.Error("serverTestFile err:", zap.Error(err))
+		return err
 	}
 
 	/**
 	循环写入样式元数据和单元格值
-	 */
-	if err := SetBlockStyleAndValueEx(f,req.Data,sheetname,req.Author);err!=nil {
-		log.Fatal(err)
-		return "error",err
+	*/
+	var excelData []dto.SheetDataGroup
+	json.Unmarshal([]byte(common.InitExcelData),&excelData)
+	fmt.Println("GenerateSheetFile data:%s",excelData)
+	if err := SetBlockStyleAndValueEx(fileHandle,excelData,sheetname,author);err!=nil {
+		logger.ZapLogger.Error("serverTestFile err:", zap.Error(err))
+		return err
 	}
 
-	// 协程写入数据库，这里要添加异常处理
-	//var OpExcelDao model.OpGormExcelMetaDao
-	//go OpExcelDao.WriteData(global.DBOrmEngine,req)
-
-	jCellData,_:=json.Marshal(req.Cell)
-	jData,_:=json.Marshal(req.Data)
-
-	file_id := common.GetNewDocId()
-	mateData := &models.ExcelMeta {
-		Author:		req.Author,
-		FileId:     file_id,
-		FileName:	req.Name,
-
-		Cell:     string(jCellData),
-		Data:     string(jData),
-		RowData:  req.RawData,
-		Modifier: req.Author,
-	}
-
-	//写入数据如果慢，需要goroutine
-	_,err = dao.AddOnlineExcelFileData(mateData)
-	if err != nil {
-		log.Fatal(err)
-		return "db error",err
-	}
-
-	file_dir := global.GetBaseFilePath() +"/"+ req.Name //+ constants.Name_time_mark + strconv.Itoa(int(time.Now().Unix())) + ".xlsx"
+	file_dir := global.GetBaseFilePath() +"/"+ name //+ constants.Name_time_mark + strconv.Itoa(int(time.Now().Unix())) + ".xlsx"
 	// 文件写入磁盘
 	//file_dir := req.Name + constants.Name_time_mark +  strconv.Itoa(int(time.Now().Unix())) + ".xlsx"
-	if err := f.SaveAs(file_dir);err!=nil {
-		log.Fatal(err)
-		return "error",err
+	if err := fileHandle.SaveAs(file_dir);err!=nil {
+		logger.ZapLogger.Error("serverTestFile err:", zap.Error(err))
+		return err
 	}
 
-	//url := global.GetFileUrl() + "/" + file_dir
-	return file_id ,nil
+	return nil
 }
 
 
 func QuerySheetFile(req *request.QueryMetaFile) (*response.QueryMetaFiles, error){
 
-	metas,err := dao.QueryMetaByConditions(req.FileName,req.User, req.Version)
+	//metas,err := dao.QueryMetaByConditions(req.FileName,req.User, req.Version)
+	metas,err := dao.GetAllMetaFile(1000)
 	if err != nil {
+		logger.ZapLogger.Error("QuerySheetFile err:", zap.Error(err))
 		return nil, err
 	}
 
@@ -108,6 +116,7 @@ func QuerySheetFile(req *request.QueryMetaFile) (*response.QueryMetaFiles, error
 		tmpMetaFile := response.SheetFile {
 			FileId: meta.FileId,
 			Version: meta.Version,
+			FileName:meta.FileName,
 			CreateTime: meta.CreateStime.String(),
 		}
 
@@ -123,6 +132,7 @@ func QuerySheetMetaData(fileId string) (*response.OpenMetaFile, error){
 
 	meta,err := dao.GetMetaDataById(fileId)
 	if err != nil {
+		logger.ZapLogger.Error("QuerySheetMetaData err:", zap.Error(err))
 		return nil, err
 	}
 
@@ -138,4 +148,51 @@ func QuerySheetMetaData(fileId string) (*response.OpenMetaFile, error){
 
 func DeleteSheetFile(fileId string) error {
 	return  dao.DelFileById(fileId)
+}
+
+func getFileNewVersion(fileId string) (int,error) {
+	return dao.GetMetaFileVersion(fileId)
+}
+
+func SaveSheetMetaData(req *request.SaveMateData) error {
+
+	jCellData,err := json.Marshal(req.Cell)
+	if err != nil {
+		logger.ZapLogger.Error("SaveSheetMetaData err:", zap.Error(err))
+		return err
+	}
+
+	jData,err := json.Marshal(req.Data)
+	if err != nil {
+		logger.ZapLogger.Error("SaveSheetMetaData err:", zap.Error(err))
+		return err
+	}
+
+	_,err = dao.UpdateFileInfo(req.FileId, req.User,string(jCellData),string(jData),req.RowData)
+	if err != nil {
+		logger.ZapLogger.Error("SaveSheetMetaData err:", zap.Error(err))
+		return err
+	}
+
+	return nil
+}
+
+func GetFileInfo(fileId string) (*response.MetaFileInfo,error) {
+
+	metadata,err := dao.GetMetaDataById(fileId)
+	if err != nil {
+		logger.ZapLogger.Error("GetFileInfo err:", zap.Error(err))
+		return nil, err
+	}
+
+	return &response.MetaFileInfo{
+		FileId:metadata.FileId,
+		FileName:metadata.FileName,
+		Author:metadata.Author,
+		CreateStime:metadata.CreateStime,
+		UpdateStime:metadata.UpdateStime,
+		Modifier:metadata.Modifier,
+		Version:metadata.Version,
+	},nil
+
 }

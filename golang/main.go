@@ -3,6 +3,9 @@ package main
 import (
 	"ark-online-excel/dao"
 	"ark-online-excel/logger"
+	"ark-online-excel/timer"
+	"context"
+
 	//"context"
 	"fmt"
 	"go.uber.org/zap"
@@ -111,7 +114,7 @@ func main(){
 
 	// start
 	//rootCtx, _ := context.WithCancel(context.Background())
-
+	timer.InitTimer(context.Background())
 
 	go func() {
 		defer func() {

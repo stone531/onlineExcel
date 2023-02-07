@@ -6,7 +6,8 @@ type QueryMetaFiles struct {
 
 
 type SheetFile struct {
-	FileId 		string      `json:"file_name"`
+	FileId 		string      `json:"file_id"`
+	FileName 	string      `json:"file_name"`
 	Version 	int	   		`json:"version"`
 	CreateTime	string 		`json:"create_time"`
 }

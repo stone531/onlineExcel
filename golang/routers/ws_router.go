@@ -20,8 +20,11 @@ func wsRouter() beego.LinkNamespace {
 
 		// 修改文档
 		//beego.NSRouter("/onlineexcel/edit", &controllers.SheetController{}, "post:SaveSheetData"),
-		//保持当前文档
-		//beego.NSRouter("/onlineexcel/save", &controllers.SheetController{}, "post:SaveSheetData"),
+		//保存当前文档
+		beego.NSRouter("/onlineexcel/save", &controllers.SheetController{}, "post:SaveSheetData"),
+
+		//文件详情
+		beego.NSRouter("/onlineexcel/fileInfo", &controllers.SheetController{}, "get:GetFileInfo"),
 		// 获取报表的操作历史
 		//beego.NSRouter("/onlineexcel/history/get", &controllers.SheetController{}, "get:GetTableRawData"),
 		// 获取报表的原生字段

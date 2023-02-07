@@ -18,10 +18,15 @@ type SheetController struct {
 // 生成报表
 func (c *SheetController)CreateSheetData() {
 
-	req := &request.MateData{}
+	req := &request.CreateMateData{}
 	_, err := c.ParseBody(req)
 	if err != nil {
 		c.SetClientError(err.Error())
+		return
+	}
+
+	if req.Author == "" || req.Name == "" {
+		c.SetClientError(fmt.Sprintf("CreateSheetData params empty, auth=%s,name=%s",req.Author,req.Name))
 		return
 	}
 
@@ -42,8 +47,8 @@ func (c *SheetController)QuerySheetFile() {
 		return
 	}
 
-	if req.FileName == "" || req.User == "" {
-		c.SetClientError(fmt.Sprintf("SheetController QuerySheetFile params_bk empty"))
+	if req.User == "" {
+		c.SetClientError(fmt.Sprintf("SheetController QuerySheetFile author empty"))
 		return
 	}
 
@@ -104,75 +109,44 @@ func (c *SheetController) shareExcel(fileId,user string) {
 		time.Sleep(500)
 	}
 
-	shareObj.AddShareCount()
-
 	//给当前用户发送文档初始数据
 	mFile,err := excel.QuerySheetMetaData(fileId)
 	if err != nil {
 		c.SetClientError(err.Error())
 		return
 	}
-	c.SetData(mFile)
+	//c.SetData(mFile)
 
 	//开启长连接
 	shareObj.JoinShareExcelRoom(user, fileId, c.Ctx.ResponseWriter, c.Ctx.Request, mFile)
 
 }
 
-// 根据ID获取表的模版数据
-func (c *SheetController)GetTableRawData() {
-	//var req params_bk.SheetRawdataReq
-	//if err := c.BindJSON(&req);err!=nil {
-	//	log.Fatal(err)
-	//	response.ResponseError(c,400,"参数绑定错误",err)
-	//	return
-	//}
-	//data,err := services.GetExcelRawDatas(req.ID)
-	//if err!= nil {
-	//	log.Fatal(err)
-	//	response.ResponseError(c,500,err.Error(),err)
-	//	return
-	//}
-	//response.ResponseSuccess(c,200,"获取成功",data)
-}
-
-
-// 获取数据源的字段信息
-func (c *SheetController)GetSheetTableMeta() {
-	//var req params_bk.SheetTableReq
-	//if err := c.BindJSON(&req);err!=nil {
-	//	log.Fatal(err)
-	//	response.ResponseError(c,400,"参数绑定错误",err)
-	//	return
-	//}
-	//data,err := services.GetTableMetaInfo(req.TableName)
-	//if err!= nil {
-	//	log.Fatal(err)
-	//	response.ResponseError(c,500,"生成失败",err)
-	//	return
-	//}
-	//response.ResponseSuccess(c,200,"生成成功",data)
-}
-
-// 获取表格的操作历史
-func (c *SheetController)GetSheetHistory() {
-	//var req params_bk.SheetHistoryReq
-	//if err := c.BindJSON(&req);err!=nil {
-	//	log.Fatal(err)
-	//	response.ResponseError(c,400,"参数绑定错误",err)
-	//	return
-	//}
-	//data,err := services.GetSheetHistory(req)
-	//if err!= nil {
-	//	log.Fatal(err)
-	//	response.ResponseError(c,500,"获取失败",err)
-	//	return
-	//}
-	//response.ResponseSuccess(c,200,"获取成功",data)
-}
-
 func (c *SheetController)SaveSheetData() {
+	req := &request.SaveMateData{}
+	_, err := c.ParseBody(req)
+	if err != nil {
+		c.SetClientError(err.Error())
+		return
+	}
 
+	if req.User == "" || req.FileId == "" {
+		c.SetClientError(fmt.Sprintf("SaveSheetData params empty, user=%s,fileId=%s",req.User,req.FileId))
+		return
+	}
+
+	if len(req.Data) == 0 {
+		c.SetClientError("SaveSheetData data empty,no data need save")
+		return
+	}
+
+	err = excel.SaveSheetMetaData(req)
+	if err!=nil {
+		c.SetClientError(err.Error())
+		return
+	}
+
+	c.SetData(fmt.Sprintf("save fileId:%s success",req.FileId))
 }
 
 func (c *SheetController)DelSheetFile() {
@@ -189,4 +163,20 @@ func (c *SheetController)DelSheetFile() {
 	}
 
 	c.SetData("success")
+}
+
+func (c *SheetController)GetFileInfo() {
+	fileId :=c.GetString("fileId")
+	if fileId == "" {
+		c.SetClientError("OpenSheetMateData get params_bk err file_id empty")
+		return
+	}
+
+	res,err := excel.GetFileInfo(fileId)
+	if err != nil {
+		c.SetClientError(err.Error())
+		return
+	}
+
+	c.SetData(res)
 }

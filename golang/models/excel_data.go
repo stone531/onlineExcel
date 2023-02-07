@@ -18,8 +18,8 @@ type ExcelMeta struct {
 	Author 		string 			`json:"author"` //文档的作者
 
 	//Api 		[]byte 			`json:"api" gorm:"api"` // 文件下载路径
-	Cell    	string 			`json:"cell" orm:"cell"`
-	Data    	string 			`json:"data" orm:"data"`
+	Cell    	string 			`json:"cell" orm:"type(cell)"`
+	Data    	string 			`json:"data" orm:"type(data)"`
 	RowData 	string 			`json:"rowdata"`
 	Version 	int 			`json:"version"`
 

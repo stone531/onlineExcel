@@ -3,6 +3,7 @@ package dao
 import (
 	"ark-online-excel/models"
 	"errors"
+	"fmt"
 	"github.com/astaxie/beego/orm"
 )
 
@@ -18,32 +19,28 @@ func AddOnlineExcelFileData(data *models.ExcelMeta) (*models.ExcelMeta, error) {
 }
 
 
-func UpdateFileInfo(fileId string, cell,data,rowData string) (*models.ExcelMeta, error) {
+func UpdateFileInfo(fileId ,user string, cell,data,rowData string) (*models.ExcelMeta, error) {
 
-	metaInfo := &models.ExcelMeta{
-		FileId:fileId,
-	}
-
-	adminOld, err := GetMetaDataById(fileId)
+	oldFileMeta, err := GetMetaDataById(fileId)
 	if err != nil {
 		return nil, err
 	}
-	if adminOld == nil {
+	if oldFileMeta == nil {
 		return nil, errors.New("资源不存在")
 	}
 
-	newMeta := &models.ExcelMeta{
-		Cell:cell,
-		Data:  data,
+	oldFileMeta.Cell = cell
+	oldFileMeta.Data = data
+	oldFileMeta.Modifier= user
+	oldFileMeta.RowData = rowData
 
-		RowData:rowData,
-	}
 	o := orm.NewOrm()
-	_, err = o.Update(newMeta,"rowData", "cell", "data")
+	_, err = o.Update(oldFileMeta,"modifier","row_data", "cell", "data")
 	if err != nil {
 		return nil, err
 	}
-	return metaInfo, nil
+
+	return oldFileMeta, nil
 }
 
 
@@ -83,11 +80,15 @@ func DelFileById(fileId string) error {
 }
 
 func QueryMetaByConditions(fileName, author,version string) ([]*models.ExcelMeta, error) {
+	if author == "" {
+		return nil, fmt.Errorf("author params empty")
+	}
 	cond := orm.NewCondition()
-	cond = cond.And("file_name", fileName)
 
-	if author != "" {
-		cond = cond.And("author", author)
+	cond = cond.And("author", author)
+
+	if fileName != "" {
+		cond = cond.And("file_name", fileName)
 	}
 
 	if version != "" {
@@ -102,4 +103,27 @@ func QueryMetaByConditions(fileName, author,version string) ([]*models.ExcelMeta
 	}
 
 	return modules,nil
+}
+
+func GetAllMetaFile(size int64) ([]*models.ExcelMeta, error) {
+	q := orm.NewOrm().QueryTable(&models.ExcelMeta{})
+	var modules []*models.ExcelMeta
+	_, err := q.Limit(size, 0).All(&modules)
+	return modules, err
+}
+
+func GetMetaFileVersion(fileId string) (int ,error) {
+	cond := orm.NewCondition()
+	cond = cond.And("file_id", fileId)
+	q := orm.NewOrm().QueryTable(&models.ExcelMeta{}).SetCond(cond)
+	var modules []*models.ExcelMeta
+	_, err := q.All(&modules)
+	if err != nil {
+		return 0, err
+	}
+	if modules != nil && len(modules) > 0 {
+		return modules[0].Version, nil
+	} else {
+		return 0, nil
+	}
 }
